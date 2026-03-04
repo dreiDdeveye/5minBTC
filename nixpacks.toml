@@ -1,3 +1,0 @@
-# Force Railway to use Dockerfile, not Nixpacks
-[phases.setup]
-onlyIncludeFiles = ["Dockerfile"]
