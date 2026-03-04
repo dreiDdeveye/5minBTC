@@ -30,10 +30,10 @@ class AggTradeConsumer:
                     backoff = 1
                     async for raw in ws:
                         self._accumulate(json.loads(raw))
-            except (websockets.ConnectionClosed, ConnectionError, OSError) as e:
-                logger.warning(f"AggTrade WS disconnected: {e}. Reconnecting in {backoff}s...")
+            except Exception as e:
+                logger.warning(f"AggTrade WS error: {e}. Reconnecting in {backoff}s...")
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30)
+                backoff = min(backoff * 2, 60)
 
     def _accumulate(self, msg: dict):
         qty = float(msg.get("q", 0))

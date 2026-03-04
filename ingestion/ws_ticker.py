@@ -29,10 +29,10 @@ async def connect():
                         v24=float(data["v"]),   # 24h volume
                         chg=_pct(data),
                     )
-        except (websockets.ConnectionClosed, ConnectionError, OSError) as e:
-            logger.warning(f"Ticker WS disconnected: {e}. Reconnecting in {backoff}s...")
+        except Exception as e:
+            logger.warning(f"Ticker WS error: {e}. Reconnecting in {backoff}s...")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30)
+            backoff = min(backoff * 2, 60)
 
 
 def _pct(data: dict) -> float:
