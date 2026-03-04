@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block nav_backtest %}active{% endblock %}
+
+{% block content %}
+<div class="page-single">
+    <div class="mecha-panel">
+        <div class="panel-header">
+            <span class="panel-icon">//</span>
+            <span class="panel-title">BACKTEST RESULTS</span>
+        </div>
+        <div class="backtest-summary" id="backtest-summary">
+            <div class="stat-item large">
+                <span class="stat-label">HIT RATE</span>
+                <span class="stat-value cyan" id="bt-hitrate">--</span>
+            </div>
+            <div class="stat-item large">
+                <span class="stat-label">TOTAL SIGNALS</span>
+                <span class="stat-value" id="bt-signals">--</span>
+            </div>
+            <div class="stat-item large">
+                <span class="stat-label">FOLDS</span>
+                <span class="stat-value" id="bt-folds">--</span>
+            </div>
+            <div class="stat-item large">
+                <span class="stat-label">AVG ACCURACY</span>
+                <span class="stat-value" id="bt-accuracy">--</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="mecha-panel">
+        <div class="panel-header">
+            <span class="panel-icon">//</span>
+            <span class="panel-title">FOLD METRICS</span>
+        </div>
+        <div class="table-scroll">
+            <table class="mecha-table">
+                <thead>
+                    <tr>
+                        <th>FOLD</th>
+                        <th>TRAIN PERIOD</th>
+                        <th>TEST PERIOD</th>
+                        <th>ACCURACY</th>
+                        <th>PRECISION</th>
+                        <th>F1</th>
+                        <th>AUC</th>
+                        <th>SAMPLES</th>
+                    </tr>
+                </thead>
+                <tbody id="fold-table">
+                    <tr class="empty-row"><td colspan="8">Loading metrics...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadBacktestMetrics() {
+    try {
+        const resp = await fetch('/api/metrics/latest');
+        const data = await resp.json();
+        if (!data.folds || data.folds.length === 0) return;
+
+        const folds = data.folds;
+        const avg = key => (folds.reduce((s, f) => s + (f[key] || 0), 0) / folds.length);
+
+        document.getElementById('bt-folds').textContent = folds.length;
+        document.getElementById('bt-accuracy').textContent = avg('accuracy').toFixed(3);
+
+        const tbody = document.getElementById('fold-table');
+        tbody.innerHTML = folds.map(f => {
+            const trainStart = f.train_start ? new Date(f.train_start).toLocaleDateString() : '--';
+            const testStart = f.test_start ? new Date(f.test_start).toLocaleDateString() : '--';
+            const testEnd = f.test_end ? new Date(f.test_end).toLocaleDateString() : '--';
+            return `<tr>
+                <td>${f.fold_index}</td>
+                <td>${trainStart}</td>
+                <td>${testStart} - ${testEnd}</td>
+                <td>${(f.accuracy || 0).toFixed(3)}</td>
+                <td>${(f.precision_score || 0).toFixed(3)}</td>
+                <td>${(f.f1 || 0).toFixed(3)}</td>
+                <td>${f.roc_auc ? f.roc_auc.toFixed(3) : '--'}</td>
+                <td>${f.n_samples_test || '--'}</td>
+            </tr>`;
+        }).join('');
+    } catch(e) { console.error('Backtest fetch error:', e); }
+}
+loadBacktestMetrics();
+</script>
+{% endblock %}

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.binance.com)",
+      "WebFetch(domain:xgboosting.com)",
+      "Bash(tail:*)",
+      "Bash(cd /c/Users/vicen/OneDrive/Desktop/btc && python -c \"\nimport httpx\n\n# Try to check if tables already exist by doing a simple select\nurl = 'https://zrvbmzjsivxlcodsdvrb.supabase.co'\nkey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpydmJtempzaXZ4bGNvZHNkdnJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1NTkxNTYsImV4cCI6MjA4ODEzNTE1Nn0.gBu0RL9tHBCjYmkiupziTPAsVX3s8TovUdMhjWPjiLw'\nheaders = {\n    'apikey': key,\n    'Authorization': f'Bearer {key}',\n}\nfor table in ['raw_klines', 'depth_snapshots', 'features', 'predictions', 'model_metrics', 'backtest_trades']:\n    resp = httpx.get\\(f'{url}/rest/v1/{table}?limit=0', headers=headers, timeout=10\\)\n    status = 'OK' if resp.status_code == 200 else f'MISSING \\({resp.status_code}\\)'\n    print\\(f'{table}: {status}'\\)\n\" 2>&1)",
+      "Bash(cd /c/Users/vicen/OneDrive/Desktop/btc && python main.py 2>&1)",
+      "Bash(cd /c/Users/vicen/OneDrive/Desktop/btc && python -m scripts.seed_historical --days 14 2>&1)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(cd:*)",
+      "Bash(sleep 5:*)",
+      "Bash(curl:*)",
+      "Bash(head:*)",
+      "Bash(sleep 4:*)",
+      "Bash(sleep 6:*)",
+      "Bash(echo Server down:*)"
+    ]
+  }
+}

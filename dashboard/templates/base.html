@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BTC MECHA PREDICTOR{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/mecha.css">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="scanlines">
+    <!-- Top HUD Bar -->
+    <header class="hud-header">
+        <div class="hud-left">
+            <div class="hud-logo">
+                <span class="logo-bracket">[</span>
+                <span class="logo-text">MECHA</span>
+                <span class="logo-bracket">]</span>
+            </div>
+            <span class="hud-title">BTC PREDICTOR v1.0</span>
+        </div>
+        <nav class="hud-nav">
+            <a href="/" class="nav-link {% block nav_live %}{% endblock %}">LIVE</a>
+            <a href="/backtest" class="nav-link {% block nav_backtest %}{% endblock %}">BACKTEST</a>
+            <a href="/model" class="nav-link {% block nav_model %}{% endblock %}">MODEL</a>
+        </nav>
+        <div class="hud-right">
+            <div class="status-indicator" id="status-dot">
+                <span class="dot"></span>
+                <span class="status-text">CONNECTING</span>
+            </div>
+            <div class="hud-clock" id="hud-clock">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="hud-main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Bottom Status Bar -->
+    <footer class="hud-footer">
+        <div class="footer-item">
+            <span class="footer-label">LAST CANDLE</span>
+            <span class="footer-value" id="last-candle-time">--</span>
+        </div>
+        <div class="footer-item">
+            <span class="footer-label">PRICE</span>
+            <span class="footer-value" id="current-price">--</span>
+        </div>
+        <div class="footer-item">
+            <span class="footer-label">MODEL</span>
+            <span class="footer-value" id="model-version">--</span>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

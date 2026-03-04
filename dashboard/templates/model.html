@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block nav_model %}active{% endblock %}
+
+{% block content %}
+<div class="page-single">
+    <div class="mecha-panel">
+        <div class="panel-header">
+            <span class="panel-icon">//</span>
+            <span class="panel-title">FEATURE IMPORTANCE</span>
+        </div>
+        <div class="importance-chart" id="importance-chart">
+            <div class="importance-bar-container" id="importance-bars">
+                <p class="muted-text">Train a model to see feature importance</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="mecha-panel">
+        <div class="panel-header">
+            <span class="panel-icon">//</span>
+            <span class="panel-title">MODEL VERSIONS</span>
+        </div>
+        <div class="table-scroll">
+            <table class="mecha-table">
+                <thead>
+                    <tr>
+                        <th>VERSION</th>
+                        <th>FOLDS</th>
+                        <th>AVG ACCURACY</th>
+                        <th>AVG F1</th>
+                        <th>AVG AUC</th>
+                    </tr>
+                </thead>
+                <tbody id="model-table">
+                    <tr class="empty-row"><td colspan="5">Loading models...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mecha-panel">
+        <div class="panel-header">
+            <span class="panel-icon">//</span>
+            <span class="panel-title">SYSTEM INFO</span>
+        </div>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">FEATURES</span>
+                <span class="info-value">return_1m, return_3m, return_5m, volume_ratio_20, volume_spike, atr_7, bollinger_width, ema_cross, rsi_7, order_flow_imbalance</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">MODEL</span>
+                <span class="info-value">XGBoost (n=200, depth=4, lr=0.05)</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">VALIDATION</span>
+                <span class="info-value">Walk-Forward (expanding window)</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">SIGNAL THRESHOLD</span>
+                <span class="info-value">P &gt; 0.58</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const featureNames = [
+    'return_1m', 'return_3m', 'return_5m', 'volume_ratio_20', 'volume_spike',
+    'atr_7', 'bollinger_width', 'ema_cross', 'rsi_7', 'order_flow_imbalance'
+];
+
+async function loadModelInfo() {
+    try {
+        const resp = await fetch('/api/metrics/latest');
+        const data = await resp.json();
+        if (!data.folds || data.folds.length === 0) return;
+
+        const folds = data.folds;
+        const avg = key => (folds.reduce((s, f) => s + (f[key] || 0), 0) / folds.length);
+
+        const tbody = document.getElementById('model-table');
+        tbody.innerHTML = `<tr>
+            <td>${data.model_version}</td>
+            <td>${folds.length}</td>
+            <td>${avg('accuracy').toFixed(3)}</td>
+            <td>${avg('f1').toFixed(3)}</td>
+            <td>${avg('roc_auc').toFixed(3)}</td>
+        </tr>`;
+    } catch(e) { console.error('Model fetch error:', e); }
+}
+loadModelInfo();
+</script>
+{% endblock %}

@@ -1,0 +1,637 @@
+{% extends "base.html" %}
+{% block nav_live %}active{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- Left Column: Charts -->
+    <div class="left-column">
+        <!-- Price Chart -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">PRICE CHART</span>
+                <span class="panel-badge">1m</span>
+            </div>
+            <div id="price-chart" class="chart-container"></div>
+        </div>
+
+        <!-- Probability Chart -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">PREDICTION PROBABILITY</span>
+                <span class="panel-badge">5m</span>
+            </div>
+            <div id="prob-chart" class="chart-container-small"></div>
+        </div>
+
+        <!-- Prediction Log -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">PREDICTION LOG</span>
+                <span class="wl-record" id="wl-record"></span>
+            </div>
+            <div class="table-scroll">
+                <table class="mecha-table">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>PROB</th>
+                            <th>SIGNAL</th>
+                            <th>ACTUAL</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="prediction-log">
+                        <tr class="empty-row"><td colspan="5">Waiting for predictions...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: HUD Panels -->
+    <div class="right-column">
+        <!-- LIVE PRICE (real-time) -->
+        <div class="mecha-panel price-panel" id="price-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">LIVE PRICE</span>
+                <span class="panel-badge live-badge" id="ws-badge">CONNECTING</span>
+            </div>
+            <div class="live-price-hud">
+                <div class="live-price-value" id="live-price">--</div>
+                <div class="live-price-change" id="live-change">--%</div>
+                <div class="price-to-beat" id="price-to-beat-wrap">
+                    <div class="ptb-label">PRICE TO BEAT <span style="opacity:0.5;font-size:0.7em">// 5m WINDOW</span></div>
+                    <div class="ptb-value" id="ptb-value">--</div>
+                    <div class="ptb-diff" id="ptb-diff">--</div>
+                    <div class="ptb-timer" id="ptb-timer">--:-- - --:-- UTC | -:--</div>
+                </div>
+                <div class="live-price-details">
+                    <div class="price-detail">
+                        <span class="detail-label">24H HIGH</span>
+                        <span class="detail-value green" id="live-high">--</span>
+                    </div>
+                    <div class="price-detail">
+                        <span class="detail-label">24H LOW</span>
+                        <span class="detail-value red" id="live-low">--</span>
+                    </div>
+                    <div class="price-detail">
+                        <span class="detail-label">24H VOL</span>
+                        <span class="detail-value" id="live-vol">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Signal HUD -->
+        <div class="mecha-panel signal-panel" id="signal-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">SIGNAL</span>
+            </div>
+            <div class="signal-hud">
+                <div class="signal-prob-label">PROBABILITY</div>
+                <div class="signal-prob-value" id="signal-prob">--</div>
+                <div class="signal-direction" id="signal-direction">WAITING</div>
+                <div class="signal-threshold">Threshold: 0.58</div>
+            </div>
+        </div>
+
+        <!-- Model Info -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">MODEL STATS</span>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-label">ACCURACY</span>
+                    <span class="stat-value" id="stat-accuracy">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">PRECISION</span>
+                    <span class="stat-value" id="stat-precision">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">F1 SCORE</span>
+                    <span class="stat-value" id="stat-f1">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">ROC-AUC</span>
+                    <span class="stat-value" id="stat-auc">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature Panel -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">LIVE FEATURES</span>
+            </div>
+            <div class="feature-list" id="feature-list">
+                <div class="feature-item">
+                    <span class="feature-label">RSI(7)</span>
+                    <span class="feature-value" id="feat-rsi">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">ATR(7)</span>
+                    <span class="feature-value" id="feat-atr">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">EMA CROSS</span>
+                    <span class="feature-value" id="feat-ema">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">VOL RATIO</span>
+                    <span class="feature-value" id="feat-vol">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">ORD FLOW</span>
+                    <span class="feature-value" id="feat-flow">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">RET 5m</span>
+                    <span class="feature-value" id="feat-ret5">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">FUNDING</span>
+                    <span class="feature-value" id="feat-funding">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">OI CHG</span>
+                    <span class="feature-value" id="feat-oi">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">L/S RATIO</span>
+                    <span class="feature-value" id="feat-ls">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">TAKER BUY</span>
+                    <span class="feature-value" id="feat-taker">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">WHALE %</span>
+                    <span class="feature-value" id="feat-whale">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">WHALE FLOW</span>
+                    <span class="feature-value" id="feat-wflow">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ============================================
+// REAL-TIME PRICE WebSocket
+// ============================================
+let prevPrice = 0;
+let wsRetry = 1;
+
+function connectPriceWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/api/ws/price`);
+    const badge = document.getElementById('ws-badge');
+
+    ws.onopen = () => {
+        badge.textContent = 'LIVE';
+        badge.classList.add('badge-live');
+        document.getElementById('status-dot').querySelector('.dot').classList.add('online');
+        document.getElementById('status-dot').querySelector('.status-text').textContent = 'ONLINE';
+        wsRetry = 1;
+    };
+
+    ws.onmessage = (event) => {
+        const d = JSON.parse(event.data);
+        const priceEl = document.getElementById('live-price');
+        const changeEl = document.getElementById('live-change');
+        const footerPrice = document.getElementById('current-price');
+
+        // Format price
+        const formatted = '$' + Number(d.price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        priceEl.textContent = formatted;
+        footerPrice.textContent = formatted;
+
+        // Flash effect on price change
+        if (prevPrice > 0) {
+            priceEl.classList.remove('flash-green', 'flash-red');
+            void priceEl.offsetWidth; // trigger reflow
+            priceEl.classList.add(d.price >= prevPrice ? 'flash-green' : 'flash-red');
+        }
+        prevPrice = d.price;
+
+        // 24h change
+        const chg = d.price_change_pct;
+        changeEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+        changeEl.className = 'live-price-change ' + (chg >= 0 ? 'green' : 'red');
+
+        // 24h stats
+        document.getElementById('live-high').textContent = '$' + Number(d.high_24h).toLocaleString(undefined, {maximumFractionDigits: 0});
+        document.getElementById('live-low').textContent = '$' + Number(d.low_24h).toLocaleString(undefined, {maximumFractionDigits: 0});
+        document.getElementById('live-vol').textContent = Number(d.volume_24h).toLocaleString(undefined, {maximumFractionDigits: 0}) + ' BTC';
+
+        // Update current candle in real-time
+        updateLiveCandle(d.price);
+    };
+
+    ws.onclose = () => {
+        badge.textContent = 'OFFLINE';
+        badge.classList.remove('badge-live');
+        setTimeout(connectPriceWS, wsRetry * 1000);
+        wsRetry = Math.min(wsRetry * 2, 30);
+    };
+
+    ws.onerror = () => ws.close();
+}
+connectPriceWS();
+
+// ============================================
+// CHARTS
+// ============================================
+const priceChartEl = document.getElementById('price-chart');
+const priceChart = LightweightCharts.createChart(priceChartEl, {
+    layout: { background: { color: '#111827' }, textColor: '#6b7b8d' },
+    grid: { vertLines: { color: 'rgba(0,240,255,0.03)' }, horzLines: { color: 'rgba(0,240,255,0.03)' } },
+    crosshair: { mode: 0 },
+    timeScale: { timeVisible: true, secondsVisible: true },
+    rightPriceScale: { borderColor: '#1e3a5f' },
+});
+
+const candleSeries = priceChart.addCandlestickSeries({
+    upColor: '#00ff88', downColor: '#ff3e3e',
+    borderUpColor: '#00ff88', borderDownColor: '#ff3e3e',
+    wickUpColor: '#00ff88', wickDownColor: '#ff3e3e',
+});
+
+const volumeSeries = priceChart.addHistogramSeries({
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume',
+});
+priceChart.priceScale('volume').applyOptions({
+    scaleMargins: { top: 0.8, bottom: 0 },
+});
+
+// Real-time candle update: modify the current (in-progress) candle on every tick
+let currentCandle = null;
+
+function updateLiveCandle(price) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const minuteTime = nowSec - (nowSec % 60);
+
+    if (!currentCandle || currentCandle.time < minuteTime) {
+        // New minute — start fresh candle
+        currentCandle = {
+            time: minuteTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+        };
+    } else {
+        // Same minute — update OHLC
+        currentCandle.high = Math.max(currentCandle.high, price);
+        currentCandle.low = Math.min(currentCandle.low, price);
+        currentCandle.close = price;
+    }
+
+    candleSeries.update(currentCandle);
+}
+
+// Probability chart
+const probChartEl = document.getElementById('prob-chart');
+const probChart = LightweightCharts.createChart(probChartEl, {
+    layout: { background: { color: '#111827' }, textColor: '#6b7b8d' },
+    grid: { vertLines: { color: 'rgba(0,240,255,0.03)' }, horzLines: { color: 'rgba(0,240,255,0.03)' } },
+    timeScale: { timeVisible: true },
+    rightPriceScale: { borderColor: '#1e3a5f' },
+});
+
+const probSeries = probChart.addAreaSeries({
+    lineColor: '#00f0ff',
+    topColor: 'rgba(0,240,255,0.2)',
+    bottomColor: 'rgba(0,240,255,0.0)',
+    lineWidth: 2,
+});
+
+const thresholdSeries = probChart.addLineSeries({
+    color: 'rgba(255,62,62,0.5)',
+    lineWidth: 1,
+    lineStyle: 2,
+});
+
+// Resize
+function resizeCharts() {
+    priceChart.applyOptions({ width: priceChartEl.clientWidth, height: priceChartEl.clientHeight });
+    probChart.applyOptions({ width: probChartEl.clientWidth, height: probChartEl.clientHeight });
+}
+window.addEventListener('resize', resizeCharts);
+resizeCharts();
+
+// ============================================
+// PRICE TO BEAT (synced to Polymarket 5-min UTC windows)
+// Uses actual Binance candle open price, not tick price
+// ============================================
+let priceToBeat = null;
+let ptbWindowStart = 0;
+let ptbFetching = false;
+
+function getUTC5minWindow() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return nowSec - (nowSec % 300);
+}
+
+async function fetchPTBFromCandle(windowStartSec) {
+    // Convert epoch to ISO for API lookup
+    const isoTime = new Date(windowStartSec * 1000).toISOString().replace('.000Z', '+00:00');
+    try {
+        const resp = await fetch('/api/candles?limit=200');
+        const candles = await resp.json();
+        // Find the candle whose open_time matches the 5-min boundary
+        for (const c of candles) {
+            const cTime = Math.floor(new Date(c.open_time).getTime() / 1000);
+            if (cTime === windowStartSec) {
+                return c.open;  // Binance candle open = Polymarket PTB
+            }
+        }
+    } catch(e) {}
+    return null;
+}
+
+async function syncPriceToBeat(currentPrice) {
+    const windowStart = getUTC5minWindow();
+
+    // New 5-min window — fetch the actual candle open price
+    if (windowStart !== ptbWindowStart) {
+        ptbWindowStart = windowStart;
+        priceToBeat = null;  // clear until we get the real price
+        ptbFetching = true;
+
+        // Try to get the candle open price from DB
+        const candleOpen = await fetchPTBFromCandle(windowStart);
+        if (candleOpen !== null) {
+            priceToBeat = candleOpen;
+        } else {
+            // Candle not in DB yet — use current tick as fallback, will retry
+            priceToBeat = currentPrice;
+        }
+        ptbFetching = false;
+    }
+
+    // Retry if we used fallback (candle might be in DB now)
+    if (priceToBeat !== null && !ptbFetching) {
+        const elapsed = Math.floor(Date.now() / 1000) - ptbWindowStart;
+        // Retry once at ~2 seconds into the window (candle should be stored by then)
+        if (elapsed >= 2 && elapsed <= 4) {
+            const candleOpen = await fetchPTBFromCandle(ptbWindowStart);
+            if (candleOpen !== null) {
+                priceToBeat = candleOpen;
+            }
+        }
+    }
+}
+
+function renderPriceToBeat(currentPrice) {
+    if (priceToBeat === null) return;
+
+    const ptbEl = document.getElementById('ptb-value');
+    const diffEl = document.getElementById('ptb-diff');
+    const wrapEl = document.getElementById('price-to-beat-wrap');
+    const timerEl = document.getElementById('ptb-timer');
+
+    ptbEl.textContent = '$' + priceToBeat.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    const diff = currentPrice - priceToBeat;
+    const diffPct = ((diff / priceToBeat) * 100);
+    const sign = diff >= 0 ? '+' : '';
+    diffEl.textContent = sign + diff.toFixed(2) + ' (' + sign + diffPct.toFixed(3) + '%)';
+
+    if (diff > 0) {
+        diffEl.className = 'ptb-diff green';
+        wrapEl.className = 'price-to-beat ptb-winning';
+    } else if (diff < 0) {
+        diffEl.className = 'ptb-diff red';
+        wrapEl.className = 'price-to-beat ptb-losing';
+    } else {
+        diffEl.className = 'ptb-diff';
+        wrapEl.className = 'price-to-beat';
+    }
+
+    const elapsed = Math.floor(Date.now() / 1000) - ptbWindowStart;
+    const remaining = Math.max(0, 300 - elapsed);
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+
+    const wStart = new Date(ptbWindowStart * 1000);
+    const wEnd = new Date((ptbWindowStart + 300) * 1000);
+    const fmt = d => d.toISOString().slice(11, 16);
+
+    timerEl.textContent = fmt(wStart) + ' - ' + fmt(wEnd) + ' UTC  |  ' + mins + ':' + String(secs).padStart(2, '0');
+}
+
+// Tick every second
+setInterval(() => {
+    if (prevPrice > 0) {
+        syncPriceToBeat(prevPrice);
+        renderPriceToBeat(prevPrice);
+    }
+}, 1000);
+
+// ============================================
+// POLLING (candles, predictions, metrics)
+// ============================================
+async function updateCandles() {
+    try {
+        const resp = await fetch('/api/candles?limit=200');
+        const data = await resp.json();
+        if (!data.length) return;
+
+        const candles = data.map(c => ({
+            time: Math.floor(new Date(c.open_time).getTime() / 1000),
+            open: c.open, high: c.high, low: c.low, close: c.close,
+        }));
+        const volumes = data.map(c => ({
+            time: Math.floor(new Date(c.open_time).getTime() / 1000),
+            value: c.volume,
+            color: c.close >= c.open ? 'rgba(0,255,136,0.3)' : 'rgba(255,62,62,0.3)',
+        }));
+
+        // Sync live candle: use the last closed candle's close as the current candle open
+        const lastClosed = candles[candles.length - 1];
+        const liveTime = lastClosed.time + 60;
+        if (!currentCandle || currentCandle.time < liveTime) {
+            const p = prevPrice > 0 ? prevPrice : lastClosed.close;
+            currentCandle = { time: liveTime, open: p, high: p, low: p, close: p };
+        }
+        candles.push(currentCandle);
+
+        candleSeries.setData(candles);
+        volumeSeries.setData(volumes);
+    } catch(e) { console.error('Candle fetch error:', e); }
+}
+
+async function updatePredictions() {
+    try {
+        const resp = await fetch('/api/predictions?limit=50');
+        const data = await resp.json();
+        const tbody = document.getElementById('prediction-log');
+        let wins = 0, losses = 0;
+        if (data.length > 0) {
+            tbody.innerHTML = data.map(p => {
+                const time = new Date(p.predicted_at).toLocaleTimeString();
+                const prob = p.probability ? p.probability.toFixed(3) : '--';
+                const signal = p.signal === 1 ? '<span class="signal-long">OVER</span>' : '<span class="signal-hold">UNDER</span>';
+
+                let actual = '--';
+                let status = '--';
+                let resolved = false;
+                let correct = false;
+
+                if (p.actual_target !== null) {
+                    actual = p.actual_target === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
+                    correct = (p.signal === p.actual_target);
+                    status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
+                    resolved = true;
+                } else {
+                    const predAge = (Date.now() - new Date(p.predicted_at).getTime()) / 1000;
+                    if (predAge >= 300 && prevPrice > 0 && p.close_price) {
+                        const liveActual = prevPrice > p.close_price ? 1 : 0;
+                        actual = liveActual === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
+                        correct = (p.signal === liveActual);
+                        status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
+                        resolved = true;
+                    } else if (predAge < 300) {
+                        const rem = Math.ceil(300 - predAge);
+                        status = '<span class="cyan">' + Math.floor(rem/60) + ':' + String(Math.floor(rem%60)).padStart(2,'0') + '</span>';
+                    }
+                }
+
+                if (resolved) {
+                    if (correct) wins++; else losses++;
+                }
+
+                return `<tr><td>${time}</td><td>${prob}</td><td>${signal}</td><td>${actual}</td><td>${status}</td></tr>`;
+            }).join('');
+        }
+        // Update W/L record
+        const wlEl = document.getElementById('wl-record');
+        if (wins + losses > 0) {
+            const pct = ((wins / (wins + losses)) * 100).toFixed(0);
+            wlEl.innerHTML = '<span class="green">' + wins + 'W</span> - <span class="red">' + losses + 'L</span> <span class="cyan">(' + pct + '%)</span>';
+        }
+        const probData = data.reverse().map(p => ({
+            time: new Date(p.predicted_at).getTime() / 1000,
+            value: p.probability || 0,
+        }));
+        if (probData.length > 0) {
+            probSeries.setData(probData);
+            thresholdSeries.setData(probData.map(d => ({ time: d.time, value: 0.58 })));
+        }
+    } catch(e) { console.error('Prediction fetch error:', e); }
+}
+
+async function updateLiveSignal() {
+    try {
+        const resp = await fetch('/api/predictions/live');
+        const data = await resp.json();
+        const probEl = document.getElementById('signal-prob');
+        const dirEl = document.getElementById('signal-direction');
+        const panel = document.getElementById('signal-panel');
+        if (data.probability !== null) {
+            probEl.textContent = data.probability.toFixed(3);
+            if (data.signal === 1) {
+                dirEl.textContent = 'OVER';
+                dirEl.className = 'signal-direction signal-long-text';
+                panel.classList.add('signal-active-long');
+                panel.classList.remove('signal-active-hold');
+            } else {
+                dirEl.textContent = 'UNDER';
+                dirEl.className = 'signal-direction signal-hold-text';
+                panel.classList.add('signal-active-hold');
+                panel.classList.remove('signal-active-long');
+            }
+        }
+    } catch(e) {}
+}
+
+async function updateStatus() {
+    try {
+        const resp = await fetch('/api/status');
+        const data = await resp.json();
+        if (data.last_candle) {
+            document.getElementById('last-candle-time').textContent = new Date(data.last_candle).toLocaleTimeString();
+        }
+    } catch(e) {}
+}
+
+async function updateMetrics() {
+    try {
+        const resp = await fetch('/api/metrics/latest');
+        const data = await resp.json();
+        if (data.folds && data.folds.length > 0) {
+            const folds = data.folds;
+            const avg = key => (folds.reduce((s, f) => s + (f[key] || 0), 0) / folds.length).toFixed(3);
+            document.getElementById('stat-accuracy').textContent = avg('accuracy');
+            document.getElementById('stat-precision').textContent = avg('precision_score');
+            document.getElementById('stat-f1').textContent = avg('f1');
+            document.getElementById('stat-auc').textContent = avg('roc_auc');
+            const mvEl = document.getElementById('model-version');
+            if (mvEl) mvEl.textContent = data.model_version;
+        }
+    } catch(e) {}
+}
+
+async function updateFeatures() {
+    try {
+        const resp = await fetch('/api/features/latest');
+        const data = await resp.json();
+        if (data.rsi_7 !== undefined) {
+            document.getElementById('feat-rsi').textContent = data.rsi_7.toFixed(2);
+            document.getElementById('feat-atr').textContent = data.atr_7.toFixed(2);
+            document.getElementById('feat-ema').textContent = data.ema_cross.toFixed(4);
+            document.getElementById('feat-vol').textContent = data.volume_ratio_20.toFixed(2);
+            document.getElementById('feat-flow').textContent = data.order_flow_imbalance.toFixed(4);
+            document.getElementById('feat-ret5').textContent = (data.return_5m * 100).toFixed(3) + '%';
+            // Binance Futures features
+            if (data.funding_rate !== undefined) {
+                document.getElementById('feat-funding').textContent = (data.funding_rate * 100).toFixed(4) + '%';
+            }
+            if (data.oi_change_pct !== undefined) {
+                document.getElementById('feat-oi').textContent = (data.oi_change_pct * 100).toFixed(2) + '%';
+            }
+            if (data.long_short_ratio !== undefined) {
+                document.getElementById('feat-ls').textContent = data.long_short_ratio.toFixed(3);
+            }
+            if (data.taker_buy_ratio !== undefined) {
+                document.getElementById('feat-taker').textContent = data.taker_buy_ratio.toFixed(3);
+            }
+            if (data.whale_ratio !== undefined) {
+                document.getElementById('feat-whale').textContent = (data.whale_ratio * 100).toFixed(2) + '%';
+            }
+            if (data.whale_net_flow !== undefined) {
+                document.getElementById('feat-wflow').textContent = data.whale_net_flow.toFixed(4);
+            }
+        }
+    } catch(e) {}
+}
+
+// Start polling — load everything in parallel on first paint
+Promise.all([updateCandles(), updatePredictions(), updateLiveSignal(), updateStatus(), updateMetrics(), updateFeatures()]);
+setInterval(updateCandles, 10000);
+setInterval(updatePredictions, 5000);
+setInterval(updateLiveSignal, 5000);
+setInterval(updateStatus, 10000);
+setInterval(updateMetrics, 60000);
+setInterval(updateFeatures, 30000);
+</script>
+{% endblock %}
