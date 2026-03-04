@@ -321,6 +321,13 @@ body {
     background: rgba(0, 255, 136, 0.05);
 }
 
+.signal-short-text {
+    color: var(--red);
+    text-shadow: 0 0 12px rgba(255, 62, 62, 0.4);
+    border: 1px solid rgba(255, 62, 62, 0.3);
+    background: rgba(255, 62, 62, 0.05);
+}
+
 .signal-hold-text {
     color: var(--text-secondary);
     border: 1px solid var(--border);
@@ -463,6 +470,7 @@ body {
 
 /* Signal badges */
 .signal-long { color: var(--green); font-weight: 700; }
+.signal-short { color: var(--red); font-weight: 700; }
 .signal-hold { color: var(--text-secondary); }
 .status-correct { color: var(--green); font-weight: 700; }
 .status-wrong { color: var(--red); font-weight: 700; }

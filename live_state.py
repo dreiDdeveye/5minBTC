@@ -46,6 +46,23 @@ def unsubscribe(q: asyncio.Queue):
     _subscribers.discard(q)
 
 
+polymarket: dict = {
+    "up_price": 0.5,
+    "down_price": 0.5,
+    "spread": 0.0,
+    "best_bid": 0.0,
+    "best_ask": 0.0,
+    "volume": 0.0,
+    "liquidity": 0.0,
+    "window_ts": 0,
+}
+
+
+def update_polymarket(snapshot: dict):
+    global polymarket
+    polymarket = snapshot
+
+
 def to_dict() -> dict:
     return {
         "price": price,

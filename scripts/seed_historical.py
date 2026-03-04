@@ -76,7 +76,12 @@ def fetch_historical_funding(start_ms: int, end_ms: int) -> dict[str, float]:
                 for row in data:
                     ts = datetime.fromtimestamp(row["fundingTime"] / 1000, tz=timezone.utc).isoformat()
                     result[ts] = float(row["fundingRate"])
-                current_start = data[-1]["fundingTime"] + 1
+                new_start = data[-1]["fundingTime"] + 1
+                if new_start <= current_start:
+                    break
+                current_start = new_start
+                if len(data) < 1000:
+                    break
                 time.sleep(0.2)
             except Exception as e:
                 logger.warning(f"Funding rate fetch failed: {e}")
@@ -103,12 +108,17 @@ def fetch_historical_oi(start_ms: int, end_ms: int) -> list[dict]:
                 data = resp.json()
                 if not data:
                     break
+                new_start = data[-1]["timestamp"] + 1
+                if new_start <= current_start:
+                    break  # no progress, avoid infinite loop
                 for row in data:
                     result.append({
                         "ts_ms": row["timestamp"],
                         "oi": float(row["sumOpenInterest"]),
                     })
-                current_start = data[-1]["timestamp"] + 1
+                current_start = new_start
+                if len(data) < 500:
+                    break  # last page
                 time.sleep(0.3)
             except Exception as e:
                 logger.warning(f"OI history fetch failed: {e}")
@@ -135,12 +145,17 @@ def fetch_historical_longshort(start_ms: int, end_ms: int) -> list[dict]:
                 data = resp.json()
                 if not data:
                     break
+                new_start = data[-1]["timestamp"] + 1
+                if new_start <= current_start:
+                    break  # no progress, avoid infinite loop
                 for row in data:
                     result.append({
                         "ts_ms": row["timestamp"],
                         "long_ratio": float(row["longAccount"]),
                     })
-                current_start = data[-1]["timestamp"] + 1
+                current_start = new_start
+                if len(data) < 500:
+                    break  # last page
                 time.sleep(0.3)
             except Exception as e:
                 logger.warning(f"Long/short history fetch failed: {e}")
@@ -233,13 +248,17 @@ def parse_kline(raw: list) -> dict:
 
 
 def compute_features_batch(candles: list[dict], futures_lookup: dict | None = None) -> list[dict]:
-    """Compute features for every 5-candle block in the historical data."""
+    """Compute features on UTC 5-minute boundaries in the historical data."""
     features = []
     min_candles = 30  # need EMA(21) warmup
 
-    for i in range(min_candles - 1, len(candles), 5):
-        if i >= len(candles):
-            break
+    for i in range(min_candles - 1, len(candles)):
+        # Only compute at UTC 5-minute boundaries (when close_time minute % 5 == 0)
+        ct = candles[i]["close_time"]
+        dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+        if dt.minute % 5 != 0:
+            continue
+
         window = candles[max(0, i - min_candles + 1):i + 1]
         if len(window) < min_candles:
             continue
@@ -256,26 +275,36 @@ def compute_features_batch(candles: list[dict], futures_lookup: dict | None = No
         else:
             fut = {"funding_rate": 0.0, "oi_change_pct": 0.0, "long_short_ratio": 0.5}
 
+        # 5-min window opening price (PTB baseline)
+        window_open = window[-5]["open"] if len(window) >= 5 else latest["open"]
+
         feature_row = {
             "feature_time": latest["open_time"],
             "close_price": latest["close"],
+            "open_price": window_open,
             "return_1m": momentum.return_nm(closes, 1),
             "return_3m": momentum.return_nm(closes, 3),
             "return_5m": momentum.return_nm(closes, 5),
             "volume_ratio_20": volume.ratio(volumes, 20),
             "volume_spike": volume.spike_flag(volumes, 20),
             "atr_7": volatility.atr(highs, lows, closes, 7),
+            "atr_pct": volatility.atr_pct(highs, lows, closes, 7),
             "bollinger_width": volatility.bollinger_width(closes, 20),
+            "bollinger_pos": volatility.bollinger_pos(closes, 20),
             "ema_cross": trend.ema_cross(closes, 9, 21),
             "rsi_7": trend.rsi(closes, 7),
             "order_flow_imbalance": 0.0,  # no depth data for historical
-            # New Binance Futures features
+            "price_acceleration": momentum.price_acceleration(closes),
+            # Binance Futures features
             "funding_rate": fut["funding_rate"],
             "oi_change_pct": fut["oi_change_pct"],
             "long_short_ratio": fut["long_short_ratio"],
             "taker_buy_ratio": volume.taker_buy_ratio(window, 5),
             "whale_ratio": 0.0,      # no historical aggTrade data available
             "whale_net_flow": 0.0,    # no historical aggTrade data available
+            # Polymarket features (no historical data available)
+            "poly_up_price": 0.5,    # neutral prior
+            "poly_spread": 0.0,
             "target": None,
         }
         features.append(feature_row)
@@ -293,12 +322,14 @@ def backfill_targets_batch(features: list[dict], candles: list[dict]):
     for feat in features:
         ft = feat["feature_time"]
         target_time = (
-            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=5)
+            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=config.PREDICTION_HORIZON_MIN)
         ).isoformat()
 
         future = candle_by_time.get(target_time)
         if future:
-            feat["target"] = 1 if future["close"] > feat["close_price"] else 0
+            # Target: UP if close(t+15) > close(t)
+            baseline = feat["close_price"]
+            feat["target"] = 1 if future["close"] > baseline else 0
 
 
 def main(days: int = 14):
@@ -340,22 +371,42 @@ def main(days: int = 14):
     with_target = [f for f in features if f["target"] is not None]
     logger.info(f"Features with target: {len(with_target)}/{len(features)}")
 
-    # 6. Store features (bulk)
+    # 6. Store features (bulk) — strip columns that don't exist in DB yet
     logger.info("Storing features in Supabase (bulk)...")
+    skip_cols = set()
     for i in range(0, len(features), batch_size):
         batch = features[i:i + batch_size]
-        client.upsert("features", batch, on_conflict="feature_time")
+        if skip_cols:
+            batch = [{k: v for k, v in row.items() if k not in skip_cols} for row in batch]
+        try:
+            client.upsert("features", batch, on_conflict="feature_time")
+        except Exception:
+            # Try stripping new columns progressively
+            new_cols = {"poly_up_price", "poly_spread", "price_acceleration", "atr_pct", "bollinger_pos"}
+            futures_cols = {"funding_rate", "oi_change_pct", "long_short_ratio", "taker_buy_ratio", "whale_ratio", "whale_net_flow"}
+            for attempt_skip in [new_cols, new_cols | futures_cols, new_cols | futures_cols | {"open_price"}]:
+                try:
+                    slim = [{k: v for k, v in row.items() if k not in attempt_skip} for row in batch]
+                    client.upsert("features", slim, on_conflict="feature_time")
+                    skip_cols = attempt_skip
+                    logger.info(f"Features upsert: skipping columns {skip_cols}")
+                    break
+                except Exception:
+                    continue
         logger.info(f"Stored {min(i + batch_size, len(features))}/{len(features)} features")
 
-    # 7. Train model
+    # 7. Train model (pass features directly to avoid re-fetching from DB)
     logger.info("Training initial model...")
+    import pandas as pd
     from model.train import walk_forward_train
-    model, fold_metrics, version = walk_forward_train()
+    features_df = pd.DataFrame(features)
+    model, fold_metrics, version = walk_forward_train(features_df)
     if version:
         logger.info(f"Model trained: {version}")
         if fold_metrics:
             avg_acc = sum(m["accuracy"] for m in fold_metrics) / len(fold_metrics)
-            logger.info(f"Average accuracy across {len(fold_metrics)} folds: {avg_acc:.3f}")
+            avg_f1 = sum(m["f1"] for m in fold_metrics) / len(fold_metrics)
+            logger.info(f"Average across {len(fold_metrics)} folds: accuracy={avg_acc:.3f} F1={avg_f1:.3f}")
     else:
         logger.warning("No model was trained (not enough data)")
 

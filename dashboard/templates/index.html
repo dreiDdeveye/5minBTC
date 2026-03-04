@@ -68,7 +68,7 @@
                 <div class="live-price-value" id="live-price">--</div>
                 <div class="live-price-change" id="live-change">--%</div>
                 <div class="price-to-beat" id="price-to-beat-wrap">
-                    <div class="ptb-label">PRICE TO BEAT <span style="opacity:0.5;font-size:0.7em">// 5m WINDOW</span></div>
+                    <div class="ptb-label">CLOSE BASELINE <span style="opacity:0.5;font-size:0.7em">// close(t) vs close(t+15)</span></div>
                     <div class="ptb-value" id="ptb-value">--</div>
                     <div class="ptb-diff" id="ptb-diff">--</div>
                     <div class="ptb-timer" id="ptb-timer">--:-- - --:-- UTC | -:--</div>
@@ -100,7 +100,43 @@
                 <div class="signal-prob-label">PROBABILITY</div>
                 <div class="signal-prob-value" id="signal-prob">--</div>
                 <div class="signal-direction" id="signal-direction">WAITING</div>
-                <div class="signal-threshold">Threshold: 0.58</div>
+                <div class="signal-threshold">OVER &gt; 0.50 | UNDER &le; 0.50</div>
+                <div class="signal-countdown cyan" id="signal-countdown" style="font-size:0.9em;margin-top:4px">--:--</div>
+            </div>
+        </div>
+
+        <!-- Polymarket Odds -->
+        <div class="mecha-panel">
+            <div class="panel-header">
+                <span class="panel-icon">//</span>
+                <span class="panel-title">POLYMARKET ODDS</span>
+                <span class="panel-badge" id="poly-badge">LOADING</span>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-label">UP PRICE</span>
+                    <span class="stat-value green" id="poly-up">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">DOWN PRICE</span>
+                    <span class="stat-value red" id="poly-down">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">SPREAD</span>
+                    <span class="stat-value" id="poly-spread">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">WINDOW</span>
+                    <span class="stat-value cyan" id="poly-window">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">COUNTDOWN</span>
+                    <span class="stat-value cyan" id="poly-countdown">--</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">BID / ASK</span>
+                    <span class="stat-value" id="poly-bidask">--</span>
+                </div>
             </div>
         </div>
 
@@ -146,6 +182,14 @@
                     <span class="feature-value" id="feat-atr">--</span>
                 </div>
                 <div class="feature-item">
+                    <span class="feature-label">ATR %</span>
+                    <span class="feature-value" id="feat-atrpct">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">BB POS</span>
+                    <span class="feature-value" id="feat-bbpos">--</span>
+                </div>
+                <div class="feature-item">
                     <span class="feature-label">EMA CROSS</span>
                     <span class="feature-value" id="feat-ema">--</span>
                 </div>
@@ -160,6 +204,10 @@
                 <div class="feature-item">
                     <span class="feature-label">RET 5m</span>
                     <span class="feature-value" id="feat-ret5">--</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-label">ACCEL</span>
+                    <span class="feature-value" id="feat-accel">--</span>
                 </div>
                 <div class="feature-item">
                     <span class="feature-label">FUNDING</span>
@@ -325,7 +373,7 @@ const probSeries = probChart.addAreaSeries({
 });
 
 const thresholdSeries = probChart.addLineSeries({
-    color: 'rgba(255,62,62,0.5)',
+    color: 'rgba(255,170,0,0.5)',
     lineWidth: 1,
     lineStyle: 2,
 });
@@ -339,30 +387,44 @@ window.addEventListener('resize', resizeCharts);
 resizeCharts();
 
 // ============================================
-// PRICE TO BEAT (synced to Polymarket 5-min UTC windows)
-// Uses actual Binance candle open price, not tick price
+// SHARED 5-MIN UTC WINDOW (syncs PTB, Signal, Polymarket, Prediction log)
 // ============================================
 let priceToBeat = null;
 let ptbWindowStart = 0;
 let ptbFetching = false;
+let ptbConfirmed = false;
 
 function getUTC5minWindow() {
     const nowSec = Math.floor(Date.now() / 1000);
     return nowSec - (nowSec % 300);
 }
 
-async function fetchPTBFromCandle(windowStartSec) {
-    // Convert epoch to ISO for API lookup
-    const isoTime = new Date(windowStartSec * 1000).toISOString().replace('.000Z', '+00:00');
+function getWindowCountdown() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const windowStart = getUTC5minWindow();
+    const remaining = Math.max(0, 300 - (nowSec - windowStart));
+    return { remaining, windowStart, windowEnd: windowStart + 300 };
+}
+
+function formatCountdown(secs) {
+    return Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+}
+
+function formatWindowRange(startSec) {
+    const wStart = new Date(startSec * 1000);
+    const wEnd = new Date((startSec + 300) * 1000);
+    const fmt = d => d.toISOString().slice(11, 16);
+    return fmt(wStart) + ' - ' + fmt(wEnd) + ' UTC';
+}
+
+async function fetchBaselineFromBinance(windowStartSec) {
+    // Fetch the 1m candle at window start — baseline is close price
     try {
-        const resp = await fetch('/api/candles?limit=200');
-        const candles = await resp.json();
-        // Find the candle whose open_time matches the 5-min boundary
-        for (const c of candles) {
-            const cTime = Math.floor(new Date(c.open_time).getTime() / 1000);
-            if (cTime === windowStartSec) {
-                return c.open;  // Binance candle open = Polymarket PTB
-            }
+        const startMs = windowStartSec * 1000;
+        const resp = await fetch(`/api/ptb?start_time=${startMs}`);
+        const data = await resp.json();
+        if (data.open !== null) {
+            return data.open;  // close(t) will be approximated by open since candle just started
         }
     } catch(e) {}
     return null;
@@ -371,79 +433,87 @@ async function fetchPTBFromCandle(windowStartSec) {
 async function syncPriceToBeat(currentPrice) {
     const windowStart = getUTC5minWindow();
 
-    // New 5-min window — fetch the actual candle open price
     if (windowStart !== ptbWindowStart) {
         ptbWindowStart = windowStart;
-        priceToBeat = null;  // clear until we get the real price
+        priceToBeat = null;
+        ptbConfirmed = false;
         ptbFetching = true;
 
-        // Try to get the candle open price from DB
-        const candleOpen = await fetchPTBFromCandle(windowStart);
-        if (candleOpen !== null) {
-            priceToBeat = candleOpen;
+        const candlePrice = await fetchBaselineFromBinance(windowStart);
+        if (candlePrice !== null) {
+            priceToBeat = candlePrice;
+            ptbConfirmed = true;
         } else {
-            // Candle not in DB yet — use current tick as fallback, will retry
             priceToBeat = currentPrice;
         }
         ptbFetching = false;
     }
 
-    // Retry if we used fallback (candle might be in DB now)
-    if (priceToBeat !== null && !ptbFetching) {
+    if (!ptbConfirmed && !ptbFetching) {
         const elapsed = Math.floor(Date.now() / 1000) - ptbWindowStart;
-        // Retry once at ~2 seconds into the window (candle should be stored by then)
-        if (elapsed >= 2 && elapsed <= 4) {
-            const candleOpen = await fetchPTBFromCandle(ptbWindowStart);
-            if (candleOpen !== null) {
-                priceToBeat = candleOpen;
+        if (elapsed <= 30 && elapsed % 5 < 2) {
+            ptbFetching = true;
+            const candlePrice = await fetchBaselineFromBinance(ptbWindowStart);
+            if (candlePrice !== null) {
+                priceToBeat = candlePrice;
+                ptbConfirmed = true;
             }
+            ptbFetching = false;
         }
     }
 }
 
-function renderPriceToBeat(currentPrice) {
-    if (priceToBeat === null) return;
+function renderAllTimers(currentPrice) {
+    const { remaining, windowStart } = getWindowCountdown();
+    const countdownStr = formatCountdown(remaining);
+    const windowStr = formatWindowRange(windowStart);
 
-    const ptbEl = document.getElementById('ptb-value');
-    const diffEl = document.getElementById('ptb-diff');
-    const wrapEl = document.getElementById('price-to-beat-wrap');
-    const timerEl = document.getElementById('ptb-timer');
+    // === PTB Panel ===
+    if (priceToBeat !== null) {
+        const ptbEl = document.getElementById('ptb-value');
+        const diffEl = document.getElementById('ptb-diff');
+        const wrapEl = document.getElementById('price-to-beat-wrap');
+        const timerEl = document.getElementById('ptb-timer');
 
-    ptbEl.textContent = '$' + priceToBeat.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        ptbEl.textContent = '$' + priceToBeat.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
-    const diff = currentPrice - priceToBeat;
-    const diffPct = ((diff / priceToBeat) * 100);
-    const sign = diff >= 0 ? '+' : '';
-    diffEl.textContent = sign + diff.toFixed(2) + ' (' + sign + diffPct.toFixed(3) + '%)';
+        const diff = currentPrice - priceToBeat;
+        const diffPct = ((diff / priceToBeat) * 100);
+        const sign = diff >= 0 ? '+' : '';
+        diffEl.textContent = sign + diff.toFixed(2) + ' (' + sign + diffPct.toFixed(3) + '%)';
 
-    if (diff > 0) {
-        diffEl.className = 'ptb-diff green';
-        wrapEl.className = 'price-to-beat ptb-winning';
-    } else if (diff < 0) {
-        diffEl.className = 'ptb-diff red';
-        wrapEl.className = 'price-to-beat ptb-losing';
-    } else {
-        diffEl.className = 'ptb-diff';
-        wrapEl.className = 'price-to-beat';
+        if (diff > 0) {
+            diffEl.className = 'ptb-diff green';
+            wrapEl.className = 'price-to-beat ptb-winning';
+        } else if (diff < 0) {
+            diffEl.className = 'ptb-diff red';
+            wrapEl.className = 'price-to-beat ptb-losing';
+        } else {
+            diffEl.className = 'ptb-diff';
+            wrapEl.className = 'price-to-beat';
+        }
+
+        timerEl.textContent = windowStr + '  |  ' + countdownStr;
     }
 
-    const elapsed = Math.floor(Date.now() / 1000) - ptbWindowStart;
-    const remaining = Math.max(0, 300 - elapsed);
-    const mins = Math.floor(remaining / 60);
-    const secs = remaining % 60;
+    // === Signal HUD countdown ===
+    const sigCountdown = document.getElementById('signal-countdown');
+    if (sigCountdown) {
+        sigCountdown.textContent = windowStr + '  |  ' + countdownStr;
+    }
 
-    const wStart = new Date(ptbWindowStart * 1000);
-    const wEnd = new Date((ptbWindowStart + 300) * 1000);
-    const fmt = d => d.toISOString().slice(11, 16);
-
-    timerEl.textContent = fmt(wStart) + ' - ' + fmt(wEnd) + ' UTC  |  ' + mins + ':' + String(secs).padStart(2, '0');
+    // === Polymarket panel sync ===
+    const polyWindow = document.getElementById('poly-window');
+    const polyCountdown = document.getElementById('poly-countdown');
+    if (polyWindow) polyWindow.textContent = windowStr;
+    if (polyCountdown) polyCountdown.textContent = countdownStr;
 }
 
-// Tick every second
+// Tick every second — syncs all timers from single source
 setInterval(() => {
     if (prevPrice > 0) {
         syncPriceToBeat(prevPrice);
-        renderPriceToBeat(prevPrice);
+        renderAllTimers(prevPrice);
     }
 }, 1000);
 
@@ -480,65 +550,122 @@ async function updateCandles() {
     } catch(e) { console.error('Candle fetch error:', e); }
 }
 
+// Store latest predictions data for real-time countdown ticking
+let _predData = [];
+// Track which predictions we've already resolved to the DB (avoid duplicate POSTs)
+const _resolvedPosted = new Set();
+
 async function updatePredictions() {
     try {
         const resp = await fetch('/api/predictions?limit=50');
-        const data = await resp.json();
-        const tbody = document.getElementById('prediction-log');
-        let wins = 0, losses = 0;
-        if (data.length > 0) {
-            tbody.innerHTML = data.map(p => {
-                const time = new Date(p.predicted_at).toLocaleTimeString();
-                const prob = p.probability ? p.probability.toFixed(3) : '--';
-                const signal = p.signal === 1 ? '<span class="signal-long">OVER</span>' : '<span class="signal-hold">UNDER</span>';
-
-                let actual = '--';
-                let status = '--';
-                let resolved = false;
-                let correct = false;
-
-                if (p.actual_target !== null) {
-                    actual = p.actual_target === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
-                    correct = (p.signal === p.actual_target);
-                    status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
-                    resolved = true;
-                } else {
-                    const predAge = (Date.now() - new Date(p.predicted_at).getTime()) / 1000;
-                    if (predAge >= 300 && prevPrice > 0 && p.close_price) {
-                        const liveActual = prevPrice > p.close_price ? 1 : 0;
-                        actual = liveActual === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
-                        correct = (p.signal === liveActual);
-                        status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
-                        resolved = true;
-                    } else if (predAge < 300) {
-                        const rem = Math.ceil(300 - predAge);
-                        status = '<span class="cyan">' + Math.floor(rem/60) + ':' + String(Math.floor(rem%60)).padStart(2,'0') + '</span>';
-                    }
-                }
-
-                if (resolved) {
-                    if (correct) wins++; else losses++;
-                }
-
-                return `<tr><td>${time}</td><td>${prob}</td><td>${signal}</td><td>${actual}</td><td>${status}</td></tr>`;
-            }).join('');
-        }
-        // Update W/L record
-        const wlEl = document.getElementById('wl-record');
-        if (wins + losses > 0) {
-            const pct = ((wins / (wins + losses)) * 100).toFixed(0);
-            wlEl.innerHTML = '<span class="green">' + wins + 'W</span> - <span class="red">' + losses + 'L</span> <span class="cyan">(' + pct + '%)</span>';
-        }
-        const probData = data.reverse().map(p => ({
+        _predData = await resp.json();
+        renderPredictions();
+        // Update prob chart
+        const probData = [..._predData].reverse().map(p => ({
             time: new Date(p.predicted_at).getTime() / 1000,
             value: p.probability || 0,
         }));
         if (probData.length > 0) {
             probSeries.setData(probData);
-            thresholdSeries.setData(probData.map(d => ({ time: d.time, value: 0.58 })));
+            thresholdSeries.setData(probData.map(d => ({ time: d.time, value: 0.50 })));
         }
     } catch(e) { console.error('Prediction fetch error:', e); }
 }
+
+function renderPredictions() {
+    const tbody = document.getElementById('prediction-log');
+    let wins = 0, losses = 0;
+    if (_predData.length > 0) {
+        tbody.innerHTML = _predData.map((p, idx) => {
+            const time = new Date(p.predicted_at).toLocaleTimeString();
+            const prob = p.probability ? p.probability.toFixed(3) : '--';
+            // Binary signal display: OVER / UNDER
+            let signal;
+            if (p.signal === 1) signal = '<span class="signal-long">OVER</span>';
+            else signal = '<span class="signal-short">UNDER</span>';
+
+            let actual = '--';
+            let status = '--';
+            let resolved = false;
+            let correct = false;
+
+            if (p.actual_target !== null && p.actual_target !== undefined) {
+                // Result is in the DB — permanent, never changes
+                actual = p.actual_target === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
+                // OVER(1) correct if actual=1, UNDER(-1) correct if actual=0
+                correct = (p.signal === 1 && p.actual_target === 1) || (p.signal === -1 && p.actual_target === 0);
+                status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
+                resolved = true;
+            } else {
+                const baseTime = p.feature_time ? new Date(p.feature_time).getTime() : new Date(p.predicted_at).getTime();
+                const windowEnd = baseTime + 900000;  // 15-min prediction horizon
+                const remaining = (windowEnd - Date.now()) / 1000;
+
+                if (remaining <= 0) {
+                    // Window expired — resolve once and save to DB
+                    const pid = p.feature_time || p.predicted_at;
+                    if (!_resolvedPosted.has(pid) && prevPrice > 0) {
+                        const baseline = p.close_price;
+                        if (baseline) {
+                            const result = prevPrice > baseline ? 1 : 0;
+                            _resolvedPosted.add(pid);
+                            fetch('/api/predictions/resolve', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({feature_time: p.feature_time, actual_target: result})
+                            }).catch(e => console.error('Resolve POST failed:', e));
+                            p.actual_target = result;
+                            actual = result === 1 ? '<span class="green">OVER</span>' : '<span class="red">UNDER</span>';
+                            correct = (p.signal === 1 && result === 1) || (p.signal === -1 && result === 0);
+                            status = correct ? '<span class="status-correct">W</span>' : '<span class="status-wrong">L</span>';
+                            resolved = true;
+                        } else {
+                            status = '<span class="cyan">PENDING</span>';
+                        }
+                    } else if (_resolvedPosted.has(pid)) {
+                        status = '<span class="cyan">SAVING...</span>';
+                    } else {
+                        status = '<span class="cyan">PENDING</span>';
+                    }
+                } else {
+                    const rem = Math.ceil(remaining);
+                    status = '<span class="cyan" data-countdown="' + idx + '">' + Math.floor(rem/60) + ':' + String(Math.floor(rem%60)).padStart(2,'0') + '</span>';
+                }
+            }
+
+            if (resolved) {
+                if (correct) wins++; else losses++;
+            }
+
+            return `<tr><td>${time}</td><td>${prob}</td><td>${signal}</td><td>${actual}</td><td>${status}</td></tr>`;
+        }).join('');
+    }
+    const wlEl = document.getElementById('wl-record');
+    if (wins + losses > 0) {
+        const pct = ((wins / (wins + losses)) * 100).toFixed(0);
+        wlEl.innerHTML = '<span class="green">' + wins + 'W</span> - <span class="red">' + losses + 'L</span> <span class="cyan">(' + pct + '%)</span>';
+    }
+}
+
+// Tick countdowns every second without re-fetching
+setInterval(() => {
+    if (!_predData.length) return;
+    let needsFullRender = false;
+    _predData.forEach((p, idx) => {
+        if (p.actual_target !== null) return;
+        const baseTime = p.feature_time ? new Date(p.feature_time).getTime() : new Date(p.predicted_at).getTime();
+        const remaining = (baseTime + 900000 - Date.now()) / 1000;  // 15-min horizon
+        const el = document.querySelector('[data-countdown="' + idx + '"]');
+        if (el && remaining > 0) {
+            const rem = Math.ceil(remaining);
+            el.textContent = Math.floor(rem/60) + ':' + String(Math.floor(rem%60)).padStart(2,'0');
+        } else if (remaining <= 0 && el) {
+            // Just expired — full re-render to show W/L
+            needsFullRender = true;
+        }
+    });
+    if (needsFullRender) renderPredictions();
+}, 1000);
 
 async function updateLiveSignal() {
     try {
@@ -552,13 +679,27 @@ async function updateLiveSignal() {
             if (data.signal === 1) {
                 dirEl.textContent = 'OVER';
                 dirEl.className = 'signal-direction signal-long-text';
+                dirEl.style.opacity = '1';
                 panel.classList.add('signal-active-long');
                 panel.classList.remove('signal-active-hold');
             } else {
                 dirEl.textContent = 'UNDER';
-                dirEl.className = 'signal-direction signal-hold-text';
+                dirEl.className = 'signal-direction signal-short-text';
+                dirEl.style.opacity = '1';
                 panel.classList.add('signal-active-hold');
                 panel.classList.remove('signal-active-long');
+            }
+            // Show prediction window (feature_time)
+            if (data.feature_time) {
+                const ft = new Date(data.feature_time);
+                const ftEnd = new Date(ft.getTime() + 900000);  // 15-min horizon
+                const fmt = d => d.toISOString().slice(11, 16);
+                const sigCountdown = document.getElementById('signal-countdown');
+                const nowMs = Date.now();
+                const remaining = Math.max(0, Math.ceil((ftEnd.getTime() - nowMs) / 1000));
+                if (sigCountdown) {
+                    sigCountdown.textContent = fmt(ft) + ' - ' + fmt(ftEnd) + ' UTC  |  ' + formatCountdown(remaining);
+                }
             }
         }
     } catch(e) {}
@@ -602,6 +743,16 @@ async function updateFeatures() {
             document.getElementById('feat-vol').textContent = data.volume_ratio_20.toFixed(2);
             document.getElementById('feat-flow').textContent = data.order_flow_imbalance.toFixed(4);
             document.getElementById('feat-ret5').textContent = (data.return_5m * 100).toFixed(3) + '%';
+            // New features
+            if (data.atr_pct !== undefined) {
+                document.getElementById('feat-atrpct').textContent = data.atr_pct.toFixed(4) + '%';
+            }
+            if (data.bollinger_pos !== undefined) {
+                document.getElementById('feat-bbpos').textContent = data.bollinger_pos.toFixed(3);
+            }
+            if (data.price_acceleration !== undefined) {
+                document.getElementById('feat-accel').textContent = (data.price_acceleration * 10000).toFixed(2) + 'bp';
+            }
             // Binance Futures features
             if (data.funding_rate !== undefined) {
                 document.getElementById('feat-funding').textContent = (data.funding_rate * 100).toFixed(4) + '%';
@@ -625,13 +776,32 @@ async function updateFeatures() {
     } catch(e) {}
 }
 
+async function updatePolymarket() {
+    try {
+        const resp = await fetch('/api/polymarket');
+        const d = await resp.json();
+        const badge = document.getElementById('poly-badge');
+        if (d.window_ts > 0) {
+            badge.textContent = 'LIVE';
+            badge.classList.add('badge-live');
+            document.getElementById('poly-up').textContent = (d.up_price * 100).toFixed(1) + '\u00a2';
+            document.getElementById('poly-down').textContent = (d.down_price * 100).toFixed(1) + '\u00a2';
+            document.getElementById('poly-spread').textContent = (d.spread * 100).toFixed(2) + '\u00a2';
+            document.getElementById('poly-bidask').textContent = (d.best_bid * 100).toFixed(1) + ' / ' + (d.best_ask * 100).toFixed(1);
+        } else {
+            badge.textContent = 'NO MARKET';
+        }
+    } catch(e) {}
+}
+
 // Start polling — load everything in parallel on first paint
-Promise.all([updateCandles(), updatePredictions(), updateLiveSignal(), updateStatus(), updateMetrics(), updateFeatures()]);
+Promise.all([updateCandles(), updatePredictions(), updateLiveSignal(), updateStatus(), updateMetrics(), updateFeatures(), updatePolymarket()]);
 setInterval(updateCandles, 10000);
 setInterval(updatePredictions, 5000);
 setInterval(updateLiveSignal, 5000);
 setInterval(updateStatus, 10000);
 setInterval(updateMetrics, 60000);
 setInterval(updateFeatures, 30000);
+setInterval(updatePolymarket, 15000);
 </script>
 {% endblock %}

@@ -17,7 +17,17 @@
       "Bash(head:*)",
       "Bash(sleep 4:*)",
       "Bash(sleep 6:*)",
-      "Bash(echo Server down:*)"
+      "Bash(echo Server down:*)",
+      "WebFetch(domain:docs.polymarket.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gamma-api.polymarket.com)",
+      "WebFetch(domain:polymarket.com)",
+      "WebFetch(domain:handiko.github.io)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:coinmarketcap.com)",
+      "Bash(pkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(true:*)"
     ]
   }
 }

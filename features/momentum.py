@@ -7,3 +7,12 @@ def return_nm(closes: list[float], n: int) -> float:
     if past == 0:
         return 0.0
     return (current - past) / past
+
+
+def price_acceleration(closes: list[float]) -> float:
+    """2nd derivative of price: change in 1m return. Positive = accelerating up."""
+    if len(closes) < 3:
+        return 0.0
+    r1 = return_nm(closes[:-1], 1)  # previous 1m return
+    r0 = return_nm(closes, 1)       # current 1m return
+    return r0 - r1

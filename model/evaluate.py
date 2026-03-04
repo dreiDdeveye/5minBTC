@@ -6,6 +6,7 @@ from sklearn.metrics import (
     f1_score,
     brier_score_loss,
     roc_auc_score,
+    confusion_matrix,
 )
 
 
@@ -21,4 +22,13 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_prob: np.ndarray) 
         metrics["roc_auc"] = float(roc_auc_score(y_true, y_prob))
     else:
         metrics["roc_auc"] = None
+
+    # Confusion matrix: [[TN, FP], [FN, TP]]
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    metrics["confusion_matrix"] = cm.tolist()
+    metrics["true_positives"] = int(cm[1][1])
+    metrics["false_positives"] = int(cm[0][1])
+    metrics["true_negatives"] = int(cm[0][0])
+    metrics["false_negatives"] = int(cm[1][0])
+
     return metrics

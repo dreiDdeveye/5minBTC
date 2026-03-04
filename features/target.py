@@ -2,9 +2,12 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+import config
 from db import queries
 
 logger = logging.getLogger(__name__)
+
+HORIZON = config.PREDICTION_HORIZON_MIN  # 15 minutes
 
 
 def _backfill_sync():
@@ -18,14 +21,20 @@ def _backfill_sync():
             continue
 
         target_time = (
-            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=5)
+            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=HORIZON)
         ).isoformat()
 
         future_candle = queries.get_kline_at_time(target_time)
         if future_candle is None:
             continue  # outcome hasn't happened yet
 
-        target = 1 if future_candle["close"] > row["close_price"] else 0
+        # Target = 1 if close(t+15) > close(t)
+        entry_candle = queries.get_kline_at_time(ft)
+        if entry_candle:
+            baseline = entry_candle["close"]
+        else:
+            baseline = row["close_price"]
+        target = 1 if future_candle["close"] > baseline else 0
         queries.backfill_target(ft, target)
         filled += 1
         logger.debug(f"Backfilled target={target} for feature_time={ft}")
@@ -35,20 +44,20 @@ def _backfill_sync():
 
 
 def _backfill_predictions_sync():
-    """Backfill actual_target on predictions that are 5+ minutes old."""
+    """Backfill actual_target on predictions that are 15+ minutes old."""
     preds = queries.get_predictions_without_outcome(limit=20)
     filled = 0
     for pred in preds:
         ft = pred["feature_time"]
         target_time = (
-            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=5)
+            datetime.fromisoformat(ft.replace("Z", "+00:00")) + timedelta(minutes=HORIZON)
         ).isoformat()
 
         future_candle = queries.get_kline_at_time(target_time)
         if future_candle is None:
             continue
 
-        # Get the close price at prediction time
+        # Target = close(t+15) > close(t)
         entry_candle = queries.get_kline_at_time(ft)
         if entry_candle is None:
             continue

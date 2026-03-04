@@ -43,7 +43,38 @@ def get_depth_for_range(start_time: str, end_time: str) -> list[dict]:
 
 
 def insert_feature_row(row: dict):
-    client.upsert("features", row, on_conflict="feature_time")
+    try:
+        client.upsert("features", row, on_conflict="feature_time")
+    except Exception as e:
+        # If columns don't exist yet, strip unknown cols and retry with base columns only
+        logger.warning(f"Feature upsert failed: {e}. Retrying with base columns...")
+        base_cols = {
+            "feature_time", "close_price", "open_price",
+            "return_1m", "return_3m", "return_5m",
+            "volume_ratio_20", "volume_spike",
+            "atr_7", "bollinger_width",
+            "ema_cross", "rsi_7",
+            "order_flow_imbalance", "target",
+            # Futures columns (may or may not exist)
+            "funding_rate", "oi_change_pct", "long_short_ratio",
+            "taker_buy_ratio", "whale_ratio", "whale_net_flow",
+        }
+        # Try progressively smaller sets — strip newest columns first
+        new_cols = {"poly_up_price", "poly_spread", "price_acceleration", "atr_pct", "bollinger_pos"}
+        futures_cols = {"funding_rate", "oi_change_pct", "long_short_ratio", "taker_buy_ratio", "whale_ratio", "whale_net_flow"}
+        for attempt, skip_cols in enumerate([
+            new_cols,
+            new_cols | futures_cols,
+            new_cols | futures_cols | {"open_price"},
+        ]):
+            try:
+                slim_row = {k: v for k, v in row.items() if k not in skip_cols}
+                client.upsert("features", slim_row, on_conflict="feature_time")
+                logger.info(f"Feature upsert succeeded on retry (attempt {attempt + 1})")
+                return
+            except Exception:
+                continue
+        logger.error("Feature upsert failed on all retries")
 
 
 def backfill_target(feature_time: str, target_value: int):
@@ -72,9 +103,11 @@ def get_training_data(start_time: str | None = None, end_time: str | None = None
             "limit": str(page_size),
             "offset": str(offset),
         }
-        if start_time:
+        if start_time and end_time:
+            params["and"] = f"(feature_time.gte.{start_time},feature_time.lte.{end_time})"
+        elif start_time:
             params["feature_time"] = f"gte.{start_time}"
-        if end_time:
+        elif end_time:
             params["feature_time"] = f"lte.{end_time}"
 
         rows = client.select("features", params=params)
@@ -111,8 +144,39 @@ def update_prediction_outcome(prediction_id: int, actual_target: int):
     client.update("predictions", {"actual_target": actual_target}, {"id": prediction_id})
 
 
+def resolve_prediction_by_feature_time(feature_time: str, actual_target: int) -> bool:
+    """Resolve a prediction by feature_time. Only updates if actual_target is still NULL."""
+    try:
+        rows = client.select("predictions", params={
+            "feature_time": f"eq.{feature_time}",
+            "actual_target": "is.null",
+            "limit": "1",
+        })
+        if rows:
+            client.update("predictions", {"actual_target": actual_target}, {"id": rows[0]["id"]})
+            return True
+    except Exception as e:
+        logger.debug(f"resolve_prediction_by_feature_time failed: {e}")
+    return False
+
+
 def insert_model_metrics(metrics: dict):
-    client.insert("model_metrics", metrics)
+    # Columns that may not exist in the DB schema yet
+    _extra_cols = {
+        "optimal_threshold", "optimal_threshold_up", "optimal_threshold_down",
+        "model_type", "n_up_signals", "n_down_signals", "n_skip",
+        "n_over_signals", "n_under_signals",
+        "confusion_matrix", "true_positives", "false_positives",
+        "true_negatives", "false_negatives",
+    }
+    try:
+        client.insert("model_metrics", metrics)
+    except Exception:
+        safe = {k: v for k, v in metrics.items() if k not in _extra_cols}
+        try:
+            client.insert("model_metrics", safe)
+        except Exception as e:
+            logger.warning(f"model_metrics insert failed: {e}")
 
 
 def get_model_metrics(model_version: str) -> list[dict]:
@@ -155,6 +219,14 @@ def get_latest_features() -> dict | None:
     return rows[0] if rows else None
 
 
+def get_latest_features_n(n: int) -> list[dict]:
+    """Get the N most recent feature rows (for regime filter warmup)."""
+    return client.select("features", params={
+        "order": "feature_time.desc",
+        "limit": str(n),
+    })
+
+
 def get_kline_at_time(target_time: str) -> dict | None:
     rows = client.select("raw_klines", params={
         "open_time": f"eq.{target_time}",
@@ -169,7 +241,7 @@ def get_klines_at_times(times: list[str]) -> dict[str, dict]:
         return {}
     unique = list(set(times))
     csv = ",".join(f'"{t}"' for t in unique)
-    rows = client.select("raw_klines", columns="open_time,close", params={
+    rows = client.select("raw_klines", columns="open_time,open,close", params={
         "open_time": f"in.({csv})",
     })
     return {r["open_time"]: r for r in rows}
